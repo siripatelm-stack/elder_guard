@@ -1,0 +1,30 @@
+[project]
+name = "elder-guard"
+version = "0.1.0"
+description = "Real-time scam call detection demo (turn-by-turn, CPU only)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "torch",
+    "transformers",
+    "faster-whisper",
+    "av<19",
+]
+
+[project.scripts]
+elder-guard = "elder_guard:main"
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

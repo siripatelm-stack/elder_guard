@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ElderGuard demo</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+  textarea { width: 100%; height: 160px; padding: .6rem; box-sizing: border-box; }
+  button { margin-top: .6rem; padding: .6rem 1.2rem; cursor: pointer; }
+  .turn { margin: .5rem 0; }
+  .bar { height: 10px; background: #ddd; border-radius: 5px; overflow: hidden; }
+  .fill { height: 100%; background: #2a7; }
+  .fill.hot { background: #d33; }
+  #banner { margin-top: 1rem; padding: .8rem; border-radius: 6px; font-weight: 600; }
+  .alert { background: #fde2e2; } .ok { background: #e2f5e9; }
+  small { color: #555; }
+</style>
+</head>
+<body>
+<h1>ElderGuard call-transcript check</h1>
+<p><small>Research demo. can be wrong in both directions.</small></p>
+<textarea id="text" placeholder="Paste a call transcript here..."></textarea><br>
+<button id="go">Analyze</button>
+<button id="rec">Record voice</button>
+<input type="file" id="audio" accept="audio/*">
+<small id="status"></small>
+<div id="banner" hidden></div>
+<div id="out"></div>
+<script>
+const out = document.getElementById("out"), banner = document.getElementById("banner");
+document.getElementById("go").onclick = async () => {
+  out.textContent = "Analyzing...";
+  banner.hidden = true;
+  try {
+    const r = await fetch("/analyze", {method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text: document.getElementById("text").value})});
+    const d = await r.json();
+    out.textContent = "";
+    banner.hidden = false;
+    if (d.alert_turn) { banner.className = "alert"; banner.textContent = "Alert raised at turn " + d.alert_turn; }
+    else { banner.className = "ok"; banner.textContent = "No alert (threshold " + d.threshold + ")"; }
+    d.turns.forEach(t => {
+      const div = document.createElement("div"); div.className = "turn";
+      const label = document.createElement("div");
+      label.textContent = "Turn " + t.turn + " (" + (t.fraud_probability * 100).toFixed(1) + "%): " + t.text;
+      if (t.flags && t.flags.length) label.textContent += "   WARNING: " + t.flags.join(", ");
+      const bar = document.createElement("div"); bar.className = "bar";
+      const fill = document.createElement("div");
+      fill.className = "fill" + ((t.fraud_probability >= d.threshold || (t.flags && t.flags.length)) ? " hot" : "");
+      fill.style.width = (t.fraud_probability * 100) + "%";
+      bar.appendChild(fill); div.appendChild(label); div.appendChild(bar); out.appendChild(div);
+    });
+  } catch (e) { out.textContent = "Error: " + e; }
+};
+
+const status = document.getElementById("status"), box = document.getElementById("text");
+async function transcribe(blob, name) {
+  status.textContent = " Transcribing... (the first time can take a minute while the speech model downloads)";
+  const fd = new FormData(); fd.append("file", blob, name);
+  try {
+    const r = await fetch("/transcribe", {method: "POST", body: fd});
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      status.textContent = " " + (err.detail || "Transcription failed (" + r.status + ")");
+      return;
+    }
+    const d = await r.json();
+    box.value = d.text; status.textContent = " Language: " + (d.language || "?"); document.getElementById("go").click();
+  } catch (e) { status.textContent = " Transcription failed: " + e; }
+}
+document.getElementById("audio").onchange = e => {
+  if (e.target.files[0]) transcribe(e.target.files[0], e.target.files[0].name);
+};
+let recorder = null, chunks = [];
+document.getElementById("rec").onclick = async (ev) => {
+  if (recorder) { recorder.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    recorder = new MediaRecorder(stream); chunks = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      ev.target.textContent = "Record voice"; recorder = null;
+      transcribe(new Blob(chunks, {type: "audio/webm"}), "recording.webm");
+    };
+    recorder.start(); ev.target.textContent = "Stop recording";
+  } catch (e) { status.textContent = " Microphone unavailable: " + e; }
+};
+</script>
+</body>
+</html>
